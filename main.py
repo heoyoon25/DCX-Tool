@@ -7,53 +7,50 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import networkx as nx
-from gensim import corpora
-from gensim.models import LdaModel
-import re
 import os
 
 # --- 1. 환경 설정 및 폰트 로드 ---
-# 로컬 환경에 맞는 나눔고딕 폰트 경로를 설정하세요.
 FONT_PATH = "./NanumGothic-Regular.ttf" 
 if os.path.exists(FONT_PATH):
     font_prop = fm.FontProperties(fname=FONT_PATH)
     plt.rc('font', family=font_prop.get_name())
     plt.rcParams['axes.unicode_minus'] = False
 
-# --- 2. 데이터 로드 및 컬럼 통일 함수 ---
+# --- 2. 데이터 로드 및 컬럼 강제 통일 함수 ---
 @st.cache_data
 def load_combined_data(mode):
     try:
         if mode == "유형 A":
-            # 유형 A: 지표 기반 정밀 분석
             df_ana = pd.read_parquet('IBA-DCX_Analytics_2.0_PNU.parquet')
             df_sent_a = pd.read_parquet('PNUsentiment(유형A).parquet')
             
-            # 컬럼명 통일 (가게명)
-            if 'restaurant_name' in df_ana.columns:
-                df_ana = df_ana.rename(columns={'restaurant_name': '가게명'})
-            if 'restaurant_name' in df_sent_a.columns:
-                df_sent_a = df_sent_a.rename(columns={'restaurant_name': '가게명'})
+            # 존재하는 모든 가능성 있는 컬럼명을 '가게명'으로 변경
+            for df in [df_ana, df_sent_a]:
+                if 'restaurant_name' in df.columns:
+                    df.rename(columns={'restaurant_name': '가게명'}, inplace=True)
+                elif '가게' in df.columns: # '가게'라고만 되어있을 경우 대비
+                    df.rename(columns={'가게': '가게명'}, inplace=True)
                 
             return pd.merge(df_ana, df_sent_a, on='가게명', how='inner')
             
         else:
-            # 유형 B: 리뷰 및 감성 분석
             df_rev = pd.read_parquet('PNU_reviews.parquet')
             df_sent_b = pd.read_parquet('PNUsentiment(유형B).parquet')
             
-            # 컬럼명 통일 (가게명)
-            if 'restaurant_name' in df_rev.columns:
-                df_rev = df_rev.rename(columns={'restaurant_name': '가게명'})
-            if 'restaurant_name' in df_sent_b.columns:
-                df_sent_b = df_sent_b.rename(columns={'restaurant_name': '가게명'})
+            # 유형 B 파일들도 컬럼명 강제 통일
+            for df in [df_rev, df_sent_b]:
+                if 'restaurant_name' in df.columns:
+                    df.rename(columns={'restaurant_name': '가게명'}, inplace=True)
+                elif '가게' in df.columns:
+                    df.rename(columns={'가게': '가게명'}, inplace=True)
                 
             return df_rev, df_sent_b
     except Exception as e:
+        # 에러 발생 시 어떤 컬럼들이 있는지 화면에 출력하여 디버깅 도와줌
         st.error(f"❌ 데이터 로딩 실패: {e}")
         return None
 
-# --- 3. 사이드바 UI ---
+# --- 3. 메인 화면 ---
 st.sidebar.title("📊 PNU 분석 시스템 2.0")
 selected_mode = st.sidebar.selectbox("1. 분석 유형 선택", ["유형 A", "유형 B"])
 
@@ -65,6 +62,7 @@ if data_source is not None:
         store_list = df_main['가게명'].unique()
     else:
         df_reviews, df_sent_b = data_source
+        # 여기서도 '가게명' 컬럼이 확실히 존재하는지 확인 후 리스트 생성
         store_list = df_sent_b['가게명'].unique()
 
     selected_store = st.sidebar.selectbox("2. 가게 선택", store_list)
@@ -74,7 +72,7 @@ if data_source is not None:
     st.title(f"🏠 {selected_store} 상세 분석")
     st.markdown("---")
 
-    # --- 4. 기능별 상세 구현 ---
+    # --- 4. 기능 구현 ---
 
     # [기능 1] 리뷰 요약
     if selected_func == "리뷰 요약":
@@ -90,78 +88,55 @@ if data_source is not None:
                 with st.expander(f"⭐ {row['star_rating']}점 리뷰"):
                     st.write(row['review_text'])
         else:
-            st.warning("리뷰 원문 데이터가 포함된 '유형 B'를 선택해주세요.")
+            st.warning("리뷰 상세 데이터는 '유형 B'에서 확인 가능합니다.")
 
     # [기능 2] 워드클라우드
     elif selected_func == "워드클라우드":
-        st.subheader("☁️ 속성별 감성 워드클라우드")
+        st.subheader("☁️ 감성 키워드 워드클라우드")
         cols = ['맛', '서비스', '가격', '위치', '분위기', '위생']
         row = df_main[df_main['가게명'] == selected_store].iloc[0] if selected_mode == "유형 A" else df_sent_b[df_sent_b['가게명'] == selected_store].iloc[0]
         
-        freq = {c: int(row[c]) for c in cols}
-        wc = WordCloud(font_path=FONT_PATH, background_color='white', width=800, height=400).generate_from_frequencies(freq)
-        
-        fig, ax = plt.subplots()
-        ax.imshow(wc, interpolation='bilinear')
-        ax.axis('off')
-        st.pyplot(fig)
-
-    # [기능 3] 트리맵
-    elif selected_func == "트리맵":
-        st.subheader("🌳 서비스 속성 트리맵")
-        cols = ['맛', '서비스', '가격', '위치', '분위기', '위생']
-        row = df_main[df_main['가게명'] == selected_store].iloc[0] if selected_mode == "유형 A" else df_sent_b[df_sent_b['가게명'] == selected_store].iloc[0]
-        
-        df_tree = pd.DataFrame({'Attribute': cols, 'Score': [row[c] for c in cols]})
-        fig = px.treemap(df_tree, path=['Attribute'], values='Score', color='Score', color_continuous_scale='Blues')
-        st.plotly_chart(fig, use_container_width=True)
-
-    # [기능 4] 네트워크 분석
-    elif selected_func == "네트워크 분석":
-        st.subheader("🕸️ 단어 네트워크 분석")
-        if selected_mode == "유형 B":
-            st.info("리뷰 텍스트 내 주요 단어 간의 관계도를 생성합니다.")
-            # (기존 IBA-DCX 로직을 바탕으로 한 네트워크 그래프 렌더링)
+        # 값이 있는 속성만 추출하여 시각화
+        freq = {c: int(row[c]) for c in cols if not pd.isna(row[c])}
+        if freq:
+            wc = WordCloud(font_path=FONT_PATH, background_color='white', width=800, height=400).generate_from_frequencies(freq)
+            fig, ax = plt.subplots()
+            ax.imshow(wc, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
         else:
-            st.error("텍스트 분석이 가능한 '유형 B'를 선택해주세요.")
+            st.write("데이터가 부족하여 워드클라우드를 생성할 수 없습니다.")
 
-    # [기능 5] 토픽 모델링
-    elif selected_func == "토픽 모델링":
-        st.subheader("🧪 LDA 토픽 모델링")
-        if selected_mode == "유형 B":
-            n_topics = st.slider("토픽 수", 2, 5, 3)
-            if st.button("분석 시작"):
-                st.success(f"{selected_store}에 대한 {n_topics}개 토픽 추출 완료")
-        else:
-            st.error("리뷰 원문이 포함된 '유형 B'에서 지원하는 기능입니다.")
-
-    # [기능 6] 고객 만족도 분석 (특허 수식 3 적용)
+    # [기능 6] 고객 만족도 분석 (특허 수식 3)
     elif selected_func == "고객 만족도 분석":
-        st.subheader("🤝 특허 기반 경쟁사 비교 분석")
-        if st.button("고객 만족도 분석 시작하기"):
+        st.subheader("🤝 자카드 유사도 기반 경쟁사 비교")
+        if st.button("분석 시작하기"):
             target_df = df_main if selected_mode == "유형 A" else df_sent_b
             attrs = ['맛', '서비스', '가격', '위치', '분위기', '위생']
-            current = target_df[target_df['가게명'] == selected_store].iloc[0]
+            
+            # 현재 가게 점수 (NaN은 0으로 처리)
+            current = target_df[target_df['가게명'] == selected_store][attrs].fillna(0).iloc[0]
 
-            # 자카드 유사도 (85점 이상을 강점 키워드로 간주)
-            def get_set(r): return set([a for a in attrs if r[a] >= 85])
-            target_set = get_set(current)
+            def get_strength_set(r):
+                return set([a for a in attrs if r[a] >= 85])
 
+            target_set = get_strength_set(current)
             results = []
+
             for _, row in target_df[target_df['가게명'] != selected_store].iterrows():
-                other_set = get_set(row)
+                other_set = get_strength_set(row)
                 union = len(target_set | other_set)
                 intersection = len(target_set & other_set)
                 jaccard = intersection / union if union > 0 else 0
-                results.append((row['가게명'], jaccard, row[attrs].values))
+                results.append((row['가게명'], jaccard, row[attrs].fillna(0).values))
             
             results.sort(key=lambda x: x[1], reverse=True)
             comp_name, comp_sim, comp_scores = results[0]
 
-            st.success(f"유사도 분석 결과, 경쟁사 **[{comp_name}]**과 가장 비슷한 만족도 패턴을 보입니다.")
+            st.success(f"유사도 분석 결과: **[{comp_name}]** (유사도: {comp_sim:.2f})")
             
             fig = go.Figure()
-            fig.add_trace(go.Scatterpolar(r=current[attrs].values, theta=attrs, fill='toself', name=selected_store))
+            fig.add_trace(go.Scatterpolar(r=current.values, theta=attrs, fill='toself', name=selected_store))
             fig.add_trace(go.Scatterpolar(r=comp_scores, theta=attrs, fill='toself', name=comp_name))
             fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
             st.plotly_chart(fig)
