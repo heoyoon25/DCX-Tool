@@ -199,21 +199,24 @@ if df_rev is not None and df_sent is not None:
                 else:
                     st.warning("분석할 단어가 충분하지 않습니다.")
 
-    # [탭 6] 고객 만족도 분석 (평균 비교 + 자카드 유사도)
+   # [탭 6] 고객 만족도 분석 (평균 비교 + 자카드 유사도)
     with tab6:
         st.subheader("📈 감성 점수 기반 고객 만족도 분석")
         
         # 1. 지역 전체 평균 vs 해당 가게 비교 (강점 및 약점 분석)
         st.markdown("##### 1. 지역 평균 대비 경쟁력 분석 (SWOT)")
-        regional_avg = df_sent[categories].mean()
-        store_scores = current_sent[categories]
         
-        # 바 차트 비교
+        # [수정된 부분] 명시적으로 float 타입으로 변환 및 결측치 0 처리
+        regional_avg = df_sent[categories].mean().fillna(0)
+        store_scores = current_sent[categories].fillna(0)
+        
+        # 바 차트 비교 (astype(float)으로 타입 불일치 에러 완벽 차단)
         df_comp = pd.DataFrame({
             '항목': categories,
-            f'[{selected_store}] 점수': store_scores.values,
-            '지역 평균': regional_avg.values
+            f'[{selected_store}] 점수': store_scores.values.astype(float),
+            '지역 평균': regional_avg.values.astype(float)
         })
+        
         fig_bar = px.bar(df_comp, x='항목', y=[f'[{selected_store}] 점수', '지역 평균'], barmode='group')
         st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -225,7 +228,7 @@ if df_rev is not None and df_sent is not None:
         
         if st.button("자카드 유사도 분석 실행"):
             def get_strength_set(row):
-                return set([cat for cat in categories if cat in row and row[cat] >= 85])
+                return set([cat for cat in categories if cat in row and float(row[cat]) >= 85])
             
             target_set = get_strength_set(current_sent)
             
@@ -241,25 +244,29 @@ if df_rev is not None and df_sent is not None:
                     '강점 키워드 교집합': list(target_set & other_set)
                 })
             
-            # 결과 정렬 및 표시 (마지막 사진 2장의 구조 반영)
+            # 결과 정렬 및 표시
             df_sim = pd.DataFrame(sim_results).sort_values(by='자카드 유사도', ascending=False)
             top_competitors = df_sim[df_sim['가게명'] != selected_store].head(3)
             
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                st.success(f"🏆 최우수 유사 경쟁사\n\n**{top_competitors.iloc[0]['가게명']}**\n(유사도: {top_competitors.iloc[0]['자카드 유사도']})")
-                st.write(f"🤝 겹치는 강점: {', '.join(top_competitors.iloc[0]['강점 키워드 교집합'])}")
-            
-            with c2:
-                # 상위 3개 가게 레이더 차트 비교
-                fig_radar = go.Figure()
-                fig_radar.add_trace(go.Scatterpolar(r=current_sent[categories].values, theta=categories, fill='toself', name=f'기준: {selected_store}'))
+            if not top_competitors.empty:
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.success(f"🏆 최우수 유사 경쟁사\n\n**{top_competitors.iloc[0]['가게명']}**\n(유사도: {top_competitors.iloc[0]['자카드 유사도']})")
+                    st.write(f"🤝 겹치는 강점: {', '.join(top_competitors.iloc[0]['강점 키워드 교집합'])}")
                 
-                for idx, comp in top_competitors.iterrows():
-                    comp_scores = df_sent[df_sent['가게명'] == comp['가게명']][categories].iloc[0]
-                    fig_radar.add_trace(go.Scatterpolar(r=comp_scores.values, theta=categories, fill='toself', name=comp['가게명']))
+                with c2:
+                    # 상위 3개 가게 레이더 차트 비교 (이 부분도 astype(float) 추가)
+                    fig_radar = go.Figure()
+                    fig_radar.add_trace(go.Scatterpolar(r=current_sent[categories].values.astype(float), theta=categories, fill='toself', name=f'기준: {selected_store}'))
                     
-                fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
+                    for idx, comp in top_competitors.iterrows():
+                        comp_scores = df_sent[df_sent['가게명'] == comp['가게명']][categories].iloc[0]
+                        fig_radar.add_trace(go.Scatterpolar(r=comp_scores.values.astype(float), theta=categories, fill='toself', name=comp['가게명']))
+                        
+                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
+                    st.plotly_chart(fig_radar, use_container_width=True)
+            else:
+                st.warning("비교할 수 있는 경쟁사 데이터가 부족합니다.")
                 st.plotly_chart(fig_radar, use_container_width=True)
 
 else:
