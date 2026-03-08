@@ -1,10 +1,10 @@
 streamlit
 pandas
 numpy
-plotly
-wordcloud
 matplotlib
 networkx
+wordcloud
+plotly
 gensim
+pyLDAvis
 pyarrow
-fastparquet
