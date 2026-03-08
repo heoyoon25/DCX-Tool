@@ -27,9 +27,9 @@ if os.path.exists(FONT_PATH):
     plt.rc('font', family=font_prop.get_name())
     plt.rcParams['axes.unicode_minus'] = False
 else:
-    st.warning("⚠️ 'NanumGothic.ttf' 파일이 없습니다. 한글이 깨질 수 있습니다.")
+    st.warning("⚠️ 'NanumGothic.ttf' 파일이 없습니다. 한글 폰트가 깨질 수 있습니다.")
 
-# [핵심 수정 1] 유의어 사전 대폭 확장 (더 많은 리뷰를 포착하도록)
+# 2. 분석용 유의어 사전 및 불용어 세팅
 CATEGORY_KEYWORDS = {
     '맛': ['맛', '존맛', '음식', '메뉴', '식사', '먹', '달콤', '매콤', '짜', '싱거', '꿀맛', 'JMT', '고기', '국물', '신선', '양'],
     '서비스': ['서비스', '친절', '직원', '사장', '알바', '응대', '불친절', '태도', '서비스가', '설명', '배려', '인성'],
@@ -39,8 +39,7 @@ CATEGORY_KEYWORDS = {
     '위생': ['위생', '깨끗', '청결', '더럽', '냄새', '화장실', '벌레', '머리카락', '지저분', '청소', '먼지', '소독']
 }
 
-# [핵심 수정 2] 불용어 처리 (워드클라우드 품질 향상)
-STOPWORDS = set(['너무', '정말', '진짜', '아주', '매우', '많이', '조금', '약간', '그냥', '그리고', '근데', '하지만', '같아요', '있는', '없는', '이런', '저런', '여기', '가게', '식당', '이곳', '먹고', '먹을', '가서', '가면', '같습니다', '좋습니다'])
+STOPWORDS = set(['너무', '정말', '진짜', '아주', '매우', '많이', '조금', '약간', '그냥', '그리고', '근데', '하지만', '같아요', '있는', '없는', '이런', '저런', '여기', '가게', '식당', '이곳', '먹고', '먹을', '가서', '가면', '같습니다', '좋습니다', '리뷰', '방문'])
 
 @st.cache_data
 def load_data(mode):
@@ -69,7 +68,7 @@ def get_words(texts):
     words = []
     for t in texts:
         if pd.notna(t):
-            clean = re.sub(r'[^\w\s]', '', str(t)) # 한글+영어 보존
+            clean = re.sub(r'[^\w\s]', '', str(t))
             for w in clean.split():
                 if len(w) >= 2 and w not in STOPWORDS:
                     words.append(w)
@@ -133,7 +132,6 @@ if df_rev is not None and df_sent is not None:
                     if any(k in str(t) for k in keywords):
                         filtered_texts.append(t)
                 
-                # [핵심 수정 3] 데이터가 없을 경우 에러 띄우지 않고 전체 텍스트로 폴백
                 if len(filtered_texts) < 2:
                     st.info(f"💡 '{topic_filter}' 카테고리에 대한 직접적인 언급이 적어 가게 전체 키워드 분석으로 대체합니다.")
                     filtered_texts = store_texts
@@ -167,7 +165,6 @@ if df_rev is not None and df_sent is not None:
                     if any(k in str(t) for k in keywords):
                         filtered_texts.append(t)
                         
-                # 폴백 로직 동일하게 적용
                 if len(filtered_texts) < 2:
                     st.info(f"💡 '{tm_filter}' 카테고리에 대한 직접적인 언급이 적어 가게 전체 키워드 분석으로 대체합니다.")
                     filtered_texts = store_texts
@@ -216,7 +213,7 @@ if df_rev is not None and df_sent is not None:
         num_topics = st.slider("추출할 토픽 수", 2, 5, 3)
         
         if st.button("토픽 모델링 실행") and store_texts:
-            with st.spinner("시각화 맵을 구성 중입니다..."):
+            with st.spinner("시각화 맵을 구성 중입니다. 잠시만 기다려주세요..."):
                 docs = [get_words([t]) for t in store_texts]
                 docs = [d for d in docs if len(d) > 0]
                 
@@ -245,7 +242,7 @@ if df_rev is not None and df_sent is not None:
                 else:
                     st.warning("분석할 유효 단어가 부족합니다.")
 
-    # [탭 6] 고객 만족도 분석
+    # [탭 6] 고객 만족도 분석 (가장 최신 업데이트 반영)
     with tab6:
         st.subheader("📈 감성 점수 기반 고객 만족도 분석")
         
@@ -263,7 +260,7 @@ if df_rev is not None and df_sent is not None:
 
         st.divider()
 
-        st.markdown("##### 🤝 자카드 유사도 기반 경쟁사 매칭 (특허 수식 3 적용)")
+        st.markdown("##### 🤝 자카드 유사도 기반 경쟁사 매칭")
         if st.button("자카드 유사도 분석 실행"):
             def get_strength_set(row):
                 return set([cat for cat in categories if cat in row and float(row[cat]) >= 85])
@@ -286,21 +283,58 @@ if df_rev is not None and df_sent is not None:
             top_competitors = df_sim[df_sim['가게명'] != selected_store].head(3)
             
             if not top_competitors.empty:
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    st.success(f"🏆 최우수 유사 경쟁사\n\n**{top_competitors.iloc[0]['가게명']}**\n(유사도: {top_competitors.iloc[0]['자카드 유사도']})")
-                    st.write(f"🤝 겹치는 강점: {', '.join(top_competitors.iloc[0]['강점 교집합'])}")
+                best_comp = top_competitors.iloc[0]['가게명']
+                comp_scores = df_sent[df_sent['가게명'] == best_comp][categories].iloc[0].fillna(0)
                 
+                my_scores_f = store_scores.astype(float)
+                avg_scores_f = regional_avg.astype(float)
+                comp_scores_f = comp_scores.astype(float)
+                
+                diff_avg = my_scores_f - avg_scores_f
+                diff_comp = my_scores_f - comp_scores_f
+                
+                st.success(f"🏆 최우수 유사 경쟁사: **{best_comp}** (유사도: {top_competitors.iloc[0]['자카드 유사도']})")
+                
+                # 강점 포인트 2개, 개선 포인트 2개 추출
+                sorted_cats = diff_avg.sort_values(ascending=False)
+                strength_cats = sorted_cats.head(2).index.tolist()
+                weakness_cats = sorted_cats.tail(2).index.tolist()
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("#### ✨ 핵심 강점 포인트")
+                    for cat in strength_cats:
+                        st.info(f"**{cat}**\n\n"
+                                f"📈 전체 평균 대비: **{diff_avg[cat]:+.1f}점**\n\n"
+                                f"⚔️ 경쟁사 대비: **{diff_comp[cat]:+.1f}점**")
                 with c2:
+                    st.markdown("#### 🛠️ 우선 개선 포인트")
+                    for cat in weakness_cats:
+                        st.warning(f"**{cat}**\n\n"
+                                   f"📉 전체 평균 대비: **{diff_avg[cat]:+.1f}점**\n\n"
+                                   f"⚔️ 경쟁사 대비: **{diff_comp[cat]:+.1f}점**")
+
+                st.divider()
+
+                c_radar, c_table = st.columns([1, 1])
+                
+                with c_radar:
+                    st.markdown("##### 📊 경쟁사 비교 레이더 차트")
                     fig_radar = go.Figure()
-                    fig_radar.add_trace(go.Scatterpolar(r=current_sent[categories].values.astype(float), theta=categories, fill='toself', name=f'{selected_store}'))
-                    
-                    for _, comp in top_competitors.iterrows():
-                        comp_scores = df_sent[df_sent['가게명'] == comp['가게명']][categories].iloc[0]
-                        fig_radar.add_trace(go.Scatterpolar(r=comp_scores.values.astype(float), theta=categories, fill='toself', name=comp['가게명']))
-                        
-                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
+                    fig_radar.add_trace(go.Scatterpolar(r=my_scores_f.values, theta=categories, fill='toself', name=f'우리 가게'))
+                    fig_radar.add_trace(go.Scatterpolar(r=comp_scores_f.values, theta=categories, fill='toself', name=best_comp))
+                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), margin=dict(l=20, r=20, t=20, b=20))
                     st.plotly_chart(fig_radar, use_container_width=True)
+
+                with c_table:
+                    st.markdown("##### 📋 카테고리별 세부 격차 요약")
+                    df_summary = pd.DataFrame({
+                        '항목': categories,
+                        '내 점수': my_scores_f.round(1).values,
+                        '경쟁사 대비 격차': diff_comp.apply(lambda x: f"{x:+.1f}").values,
+                        '전체 평균 대비 격차': diff_avg.apply(lambda x: f"{x:+.1f}").values
+                    })
+                    st.dataframe(df_summary, use_container_width=True, hide_index=True)
             else:
                 st.warning("비교할 경쟁사가 없습니다.")
 
