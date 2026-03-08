@@ -29,15 +29,18 @@ if os.path.exists(FONT_PATH):
 else:
     st.warning("⚠️ 'NanumGothic.ttf' 파일이 없습니다. 한글이 깨질 수 있습니다.")
 
-# [새로 추가된 핵심 로직] 카테고리별 유의어 사전 (이 단어들이 포함되면 해당 토픽으로 분류)
+# [핵심 수정 1] 유의어 사전 대폭 확장 (더 많은 리뷰를 포착하도록)
 CATEGORY_KEYWORDS = {
-    '맛': ['맛', '존맛', '음식', '메뉴', '식사', '먹', '달콤', '매콤', '짜', '싱거', '꿀맛', 'JMT'],
-    '서비스': ['서비스', '친절', '직원', '사장', '알바', '응대', '불친절', '태도', '서비스가'],
-    '가격': ['가격', '가성비', '비싸', '저렴', '싸다', '돈', '금액', '비싼', '싼', '값'],
-    '위치': ['위치', '주차', '역', '접근성', '가깝', '멀다', '거리', '주차장', '골목', '교통'],
-    '분위기': ['분위기', '인테리어', '데이트', '조명', '음악', '조용', '시끄', '감성', '뷰', '경치'],
-    '위생': ['위생', '깨끗', '청결', '더럽', '냄새', '화장실', '벌레', '머리카락', '지저분']
+    '맛': ['맛', '존맛', '음식', '메뉴', '식사', '먹', '달콤', '매콤', '짜', '싱거', '꿀맛', 'JMT', '고기', '국물', '신선', '양'],
+    '서비스': ['서비스', '친절', '직원', '사장', '알바', '응대', '불친절', '태도', '서비스가', '설명', '배려', '인성'],
+    '가격': ['가격', '가성비', '비싸', '저렴', '싸다', '돈', '금액', '비싼', '싼', '값', '할인', '무료', '창렬', '혜자', '비용'],
+    '위치': ['위치', '주차', '역', '접근성', '가깝', '멀다', '거리', '주차장', '골목', '교통', '근처', '동네', '주변'],
+    '분위기': ['분위기', '인테리어', '데이트', '조명', '음악', '조용', '시끄', '감성', '뷰', '경치', '깔끔', '예쁘', '이쁘', '모임'],
+    '위생': ['위생', '깨끗', '청결', '더럽', '냄새', '화장실', '벌레', '머리카락', '지저분', '청소', '먼지', '소독']
 }
+
+# [핵심 수정 2] 불용어 처리 (워드클라우드 품질 향상)
+STOPWORDS = set(['너무', '정말', '진짜', '아주', '매우', '많이', '조금', '약간', '그냥', '그리고', '근데', '하지만', '같아요', '있는', '없는', '이런', '저런', '여기', '가게', '식당', '이곳', '먹고', '먹을', '가서', '가면', '같습니다', '좋습니다'])
 
 @st.cache_data
 def load_data(mode):
@@ -66,8 +69,10 @@ def get_words(texts):
     words = []
     for t in texts:
         if pd.notna(t):
-            clean = re.sub(r'[^가-힣\s]', '', str(t))
-            words.extend([w for w in clean.split() if len(w) >= 2])
+            clean = re.sub(r'[^\w\s]', '', str(t)) # 한글+영어 보존
+            for w in clean.split():
+                if len(w) >= 2 and w not in STOPWORDS:
+                    words.append(w)
     return words
 
 # 3. 사이드바 구성
@@ -93,7 +98,7 @@ if df_rev is not None and df_sent is not None:
     current_revs = df_rev[df_rev['가게명'] == selected_store]
     store_texts = current_revs['리뷰내용'].tolist() if not current_revs.empty and '리뷰내용' in current_revs.columns else []
 
-    # [탭 1] 리뷰 요약 (더보기 버튼 추가)
+    # [탭 1] 리뷰 요약
     with tab1:
         st.subheader(f"📋 {selected_store} 리뷰 요약")
         c1, c2, c3 = st.columns(3)
@@ -103,19 +108,17 @@ if df_rev is not None and df_sent is not None:
             c3.metric("평균 리뷰 길이", f"{int(current_revs['리뷰내용'].str.len().mean())}자")
             st.divider()
             
-            # 상위 5개 먼저 보여주기
             st.markdown("#### 📌 최근 리뷰 샘플")
             for i, row in current_revs.head(5).iterrows():
                 st.info(f"⭐ 별점: {row.get('star_rating', '-')} | {row['리뷰내용']}")
             
-            # [추가된 기능] 전체 리뷰 더보기 (Expander)
             if len(current_revs) > 5:
                 with st.expander("🔍 전체 리뷰 더 보기 (클릭하여 펼치기)"):
                     for i, row in current_revs.iloc[5:].iterrows():
                         st.markdown(f"**⭐ {row.get('star_rating', '-')}** | {row['리뷰내용']}")
                         st.divider()
 
-    # [탭 2] 워드클라우드 (유의어 사전 필터링 적용)
+    # [탭 2] 워드클라우드
     with tab2:
         st.subheader("☁️ 리뷰 키워드 워드클라우드")
         topic_filter = st.selectbox("분석 기준 선택", ["전체 컨텐츠"] + categories, key="wc_filter")
@@ -125,11 +128,15 @@ if df_rev is not None and df_sent is not None:
             if topic_filter == "전체 컨텐츠":
                 filtered_texts = store_texts
             else:
-                # 유의어 사전을 기반으로 필터링
                 keywords = CATEGORY_KEYWORDS.get(topic_filter, [topic_filter])
                 for t in store_texts:
                     if any(k in str(t) for k in keywords):
                         filtered_texts.append(t)
+                
+                # [핵심 수정 3] 데이터가 없을 경우 에러 띄우지 않고 전체 텍스트로 폴백
+                if len(filtered_texts) < 2:
+                    st.info(f"💡 '{topic_filter}' 카테고리에 대한 직접적인 언급이 적어 가게 전체 키워드 분석으로 대체합니다.")
+                    filtered_texts = store_texts
             
             words = get_words(filtered_texts)
             word_counts = Counter(words)
@@ -143,11 +150,9 @@ if df_rev is not None and df_sent is not None:
                 ax.axis('off')
                 st.pyplot(fig)
             else:
-                st.warning(f"'{topic_filter}'(으)로 분류될 만한 리뷰 텍스트가 존재하지 않습니다.")
-        else:
-            st.warning("리뷰 텍스트 데이터가 없습니다.")
+                st.warning("분석할 텍스트가 부족합니다.")
 
-    # [탭 3] 트리맵 (유의어 사전 필터링 적용)
+    # [탭 3] 트리맵
     with tab3:
         st.subheader("🌳 핵심 키워드 트리맵")
         tm_filter = st.selectbox("분석 기준 선택", ["전체 컨텐츠"] + categories, key="tm_filter")
@@ -161,6 +166,11 @@ if df_rev is not None and df_sent is not None:
                 for t in store_texts:
                     if any(k in str(t) for k in keywords):
                         filtered_texts.append(t)
+                        
+                # 폴백 로직 동일하게 적용
+                if len(filtered_texts) < 2:
+                    st.info(f"💡 '{tm_filter}' 카테고리에 대한 직접적인 언급이 적어 가게 전체 키워드 분석으로 대체합니다.")
+                    filtered_texts = store_texts
                         
             words = get_words(filtered_texts)
             top_words = Counter(words).most_common(20)
