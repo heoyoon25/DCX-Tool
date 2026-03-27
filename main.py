@@ -16,7 +16,54 @@ from gensim.models import LdaModel
 import streamlit.components.v1 as components
 import pyLDAvis
 import pyLDAvis.gensim_models as gensimvis
+import streamlit as st
+import hmac
+# (기존에 있던 import pandas as pd 등등 나머지 import 유지)
 
+# 1. 전역 설정 (반드시 가장 처음에 와야 함)
+st.set_page_config(page_title="PNU Analytics 2.0", layout="wide")
+
+# ==========================================
+# 🔒 보안: 비밀번호 확인 함수
+# ==========================================
+def check_password():
+    """사용자가 올바른 비밀번호를 입력하면 True를 반환합니다."""
+    
+    def password_entered():
+        """입력한 비밀번호가 Streamlit Secrets에 저장된 값과 같은지 확인"""
+        # hmac을 사용하여 안전하게 비밀번호 비교
+        if hmac.compare_digest(st.session_state["password"], st.secrets["password"]):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # 보안을 위해 입력된 비밀번호 메모리에서 삭제
+        else:
+            st.session_state["password_correct"] = False
+
+    # 이미 비밀번호를 맞췄다면 통과
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # 비밀번호를 아직 안 맞췄다면 입력창 표시
+    st.markdown("## 🔒 PNU Analytics 2.0 로그인")
+    st.text_input(
+        "접속 비밀번호를 입력하고 엔터를 누르세요.", 
+        type="password", 
+        on_change=password_entered, 
+        key="password"
+    )
+    
+    if "password_correct" in st.session_state:
+        st.error("😕 비밀번호가 틀렸습니다. 다시 시도해주세요.")
+    return False
+
+# 비밀번호 검사 실행 (틀리면 여기서 멈추고 아래 코드는 실행 안 됨)
+if not check_password():
+    st.stop()
+# ==========================================
+
+
+# (이 아래부터는 기존 PNU Analytics 2.0 코드 그대로 유지!)
+# FONT_PATH = "./NanumGothic.ttf"
+# ... (생략) ...
 # 1. 전역 설정 및 폰트
 st.set_page_config(page_title="PNU Analytics 2.0", layout="wide")
 
